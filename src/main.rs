@@ -105,6 +105,7 @@ enum CliMode {
     transform_args: TransformArgs,
   },
   /// Run a program, optionally passing a list of arguments to it.
+  #[clap(alias = "run-c")]
   Run {
     /// Name of the file to load.
     file: String,
@@ -166,10 +167,10 @@ struct RuntimeOpts {
   #[arg(short = 's', long = "stats")]
   /// Show performance statistics.
   show_stats: bool,
-  #[arg(short = '1', long = "single")]
+  #[arg(short = '1', long = "single", default_value_t = true)]
   /// Single-core mode (no parallelism).
   single_core: bool,
-  #[arg(short = 'l', long = "lazy")]
+  #[arg(short = 'l', long = "lazy", default_value_t = true)]
   /// Lazy mode.
   ///
   /// Lazy mode only expands references that are reachable
@@ -245,7 +246,7 @@ fn reduce_exprs(host: Arc<Mutex<Host>>, exprs: &[Net], opts: &RuntimeOpts) {
         net.parallel_normal();
       }
       let elapsed = start_time.elapsed();
-      println!("{}", host.lock().readback(net));
+      println!("Result: {}", host.lock().readback(net));
       if opts.show_stats {
         print_stats(net, elapsed);
       }

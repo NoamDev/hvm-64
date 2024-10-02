@@ -219,10 +219,37 @@ impl<'i> HvmcParser<'i> {
     let mut redexes = Vec::new();
     let root = self.parse_tree()?;
     while self.consume("&").is_ok() {
-      let tree1 = self.parse_tree()?;
-      self.consume("~")?;
-      let tree2 = self.parse_tree()?;
-      redexes.push((tree1, tree2));
+      self.take_while(|c| c == '!');
+      self.skip_trivia();
+      // "& $(" Tree Tree ") ~ [" OpNum "]"
+      if self.peek_many(2) == Some("$(") && self.peek_many(3) != Some("$([") {
+        self.advance_many(2);
+        let rhs = Box::new(self.parse_tree()?);
+        let out = Box::new(self.parse_tree()?);
+        self.consume(")")?;
+        self.skip_trivia();
+        self.consume("~")?;
+        self.skip_trivia();
+        self.consume("[")?;
+        if self.peek_one() == Some(':') {
+          self.advance_one();
+        }
+        let op = self.parse_op()?;
+        let num = self.parse_u64()?;
+        let lhs = if num < 2u64.pow(24) {
+          Tree::Num { val: num as i64 }
+        } else {
+         Tree::Num { val: (num as i64) - 2i64.pow(27)}
+        };
+        self.consume("]")?;
+        self.skip_trivia();
+        redexes.push((Tree::Op { op, rhs, out}, lhs));
+      } else {
+        let tree1 = self.parse_tree()?;
+        self.consume("~")?;
+        let tree2 = self.parse_tree()?;
+        redexes.push((tree1, tree2));
+      }
     }
     Ok(Net { root, redexes })
   }
@@ -241,13 +268,11 @@ impl<'i> HvmcParser<'i> {
           self.advance_one();
           let lab = match char {
             '(' => 0,
-            '[' => 1,
-            '{' => self.parse_u64()? as Lab,
+            '{' => 1,
             _ => unreachable!(),
           };
           let close = match char {
             '(' => ')',
-            '[' => ']',
             '{' => '}',
             _ => unreachable!(),
           };
@@ -311,23 +336,48 @@ impl<'i> HvmcParser<'i> {
             _ => Ok(Tree::Num { val: self.parse_u64()? as i64 }),
           }
         }
-        // Op = "<" Op Tree Tree ">"
-        Some('<') => {
+        // Op = "$([" Op "] $(" Tree Tree "))"
+        // Op = "$([" OpNum "]" Tree "))"
+        Some('$') => {
           self.advance_one();
+          self.consume("(")?;
+          self.consume("[")?;
+          if self.peek_one() == Some(':') {
+            self.advance_one();
+          }
           let op = self.parse_op()?;
-          let rhs = Box::new(self.parse_tree()?);
-          let out = Box::new(self.parse_tree()?);
-          self.consume(">")?;
-          Ok(Tree::Op { op, rhs, out })
+          if self.peek_one() == Some(']') {
+            self.advance_one();
+            self.skip_trivia();
+            self.consume("$(")?;
+            let rhs = Box::new(self.parse_tree()?);
+            let out = Box::new(self.parse_tree()?);
+            self.consume(")")?;
+            self.consume(")")?;
+            return Ok(Tree::Op { op, rhs, out })
+          } else {
+            let num = self.parse_u64()?;
+            let rhs = if num < 2u64.pow(24) {
+              Box::new(Tree::Num { val: num as i64 })
+            } else {
+              Box::new(Tree::Num { val: (num as i64) - 2i64.pow(27)})
+            };
+
+            self.consume("]")?;
+            let out = Box::new(self.parse_tree()?);
+            self.consume(")")?;
+            return Ok(Tree::Op { op, rhs, out })
+          }
         }
+        
         // Mat = "?<" Tree Tree ">"
         Some('?') => {
           self.advance_one();
-          self.consume("<")?;
+          self.consume("(")?;
           let zero = self.parse_tree()?;
           let succ = self.parse_tree()?;
           self.skip_trivia();
-          if self.peek_one() == Some('>') {
+          if self.peek_one() == Some(')') {
             self.advance_one();
             Tree::legacy_mat(zero, succ).ok_or_else(|| "invalid legacy match".to_owned())
           } else {
@@ -339,14 +389,35 @@ impl<'i> HvmcParser<'i> {
           }
         }
         // Var = Name
-        _ => Ok(Tree::Var { nam: self.parse_name()? }),
+        _ => {
+          
+          if let Some(c) = self.peek_one() {
+            if "0123456789+-".contains(c) {
+              return match c {
+                '-' => {
+                  self.advance_one();
+                  Ok(Tree::Num { val: -(self.parse_u64()? as i64) })
+                }
+                '+' => {
+                  self.advance_one();
+                  Ok(Tree::Num { val: (self.parse_u64()? as i64) })
+                }
+                _ => Ok(Tree::Num { val: self.parse_u64()? as i64 }),
+              };
+            }
+          }
+          let nam = self.parse_name()?;
+          Ok(Tree::Var { nam })
+          
+        }
+        // _ => Ok(Tree::Var { nam: self.parse_name()? }),
       }
     })
   }
 
   /// Name = /[a-zA-Z0-9_.$]+/
   fn parse_name(&mut self) -> Result<String, String> {
-    let name = self.take_while(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '$');
+    let name = self.take_while(|c| c.is_alphanumeric() || c == '/' || c == '_' || c == '.' || c == '$');
     if name.is_empty() {
       return self.expected("name");
     }
@@ -355,7 +426,7 @@ impl<'i> HvmcParser<'i> {
 
   /// See `ops.rs` for the available operators.
   fn parse_op(&mut self) -> Result<Op, String> {
-    let op = self.take_while(|c| "ui0123456789.+-=*/%<>|&^!?$".contains(c));
+    let op = self.take_while(|c| "ui.+-=*/%<>|&^!?$".contains(c));
     op.parse().map_err(|_| format!("Unknown operator: {op:?}"))
   }
 }
@@ -458,7 +529,7 @@ impl fmt::Display for Tree {
       }
       Tree::Var { nam } => write!(f, "{nam}"),
       Tree::Ref { nam } => write!(f, "@{nam}"),
-      Tree::Num { val } => write!(f, "#{val}"),
+      Tree::Num { val } => write!(f, "{val}"),
       Tree::Op { op, rhs, out } => write!(f, "<{op} {rhs} {out}>"),
       Tree::Mat { zero, succ, out } => write!(f, "?<{zero} {succ} {out}>"),
     })

@@ -1,3 +1,17 @@
+## Hacky Bend Compatibility
+This branch allows seamless use with current bend in lazy mode.
+Lazy mode is enabled by default.
+
+However, only (un)signed integer numbers are supported.
+
+Additionally code should not depend on the width of numbers (be careful with bitwise operations).
+
+### Usage:
+```
+cargo install --git https://github.com/NoamDev/hvm-64 --branch bend-hack
+bend run --hvm-bin hvmc main.bend
+```
+
 # HVM-Core: a parallel Interaction Combinator evaluator
 
 HVM-Core is a parallel evaluator for extended [Symmetric Interaction Combinators](https://www-lipn.univ-paris13.fr/~mazza/papers/CombSem-MSCS.pdf).

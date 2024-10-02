@@ -76,8 +76,8 @@ impl<'a, M: Mode> Net<'a, M> {
           self.interact(next, prev.clone());
           prev = path.pop().unwrap();
           continue;
-        // Otherwise, if it is a ref, expand it.
-        } else if next.tag() == Ref && next != Port::ERA {
+        // Only expand refs connected to root
+        } else if prev == Port::new_var(root.addr()) && next.tag() == Ref && next != Port::ERA {
           self.call(next, prev.clone());
           continue;
         // Otherwise, we're done.
