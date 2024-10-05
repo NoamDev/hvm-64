@@ -264,7 +264,7 @@ impl<'i> HvmcParser<'i> {
           Ok(Tree::Era)
         }
         // Ctr = "(" Tree Tree ")" | "[" Tree Tree "]" | "{" Int Tree Tree "}"
-        Some(char @ ('(' | '[' | '{')) => {
+        Some(char @ ('(' | '{')) => {
           self.advance_one();
           let lab = match char {
             '(' => 0,
@@ -492,8 +492,8 @@ impl fmt::Display for Tree {
       Tree::Ctr { lab, ports } => {
         match lab {
           0 => write!(f, "("),
-          1 => write!(f, "["),
-          _ => write!(f, "{{{lab}"),
+          1 => write!(f, "{{"),
+          _ => unreachable!(),
         }?;
         let mut space = *lab > 1;
         for port in ports {
@@ -505,8 +505,8 @@ impl fmt::Display for Tree {
         }
         match lab {
           0 => write!(f, ")"),
-          1 => write!(f, "]"),
-          _ => write!(f, "}}"),
+          1 => write!(f, "}}"),
+          _ => unreachable!(),
         }?;
         Ok(())
       }
